@@ -1,0 +1,17 @@
+RESET   START   1000
+**      LDA     ZERO
+**      STA     COUNTER
+LOOP    LDX     COUNTER
+**      LDA     ZERO
+**      STA     ALPHA,X
+**      LDA     COUNTER
+**      ADD     THREE
+**      STA     COUNTER
+**      COMP    SIZE
+**      JLT     LOOP
+COUNTER RESW    1
+SIZE    WORD    300
+ZERO    WORD    0
+THREE   WORD    3
+ALPHA   RESW    100
+**      END     RESET
