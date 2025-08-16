@@ -1,0 +1,19 @@
+Loc    Label     Opcode   Operand   ObjectCode
+-----------------------------------------------
+1000   RESET    START    1000     
+1000   -        LDA      ZERO     001024
+1003   -        STA      COUNTER  0C101E
+1006   LOOP     LDX      COUNTER  04101E
+1009   -        LDA      ZERO     001024
+100C   -        STA      ALPHA,X  0C902A
+100F   -        LDA      COUNTER  00101E
+1012   -        ADD      THREE    181027
+1015   -        STA      COUNTER  0C101E
+1018   -        COMP     SIZE     281021
+101B   -        JLT      LOOP     381006
+101E   COUNTER  RESW     1        
+1021   SIZE     WORD     300      00012C
+1024   ZERO     WORD     0        000000
+1027   THREE    WORD     3        000003
+102A   ALPHA    RESW     100      
+102A                              
