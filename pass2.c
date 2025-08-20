@@ -33,15 +33,15 @@ int main(){
 
     char line[100],label[BUF],opcode[BUF],operand[BUF],objcode[20];
     char program_name[20]=""; int startAddr=0,progLen=0,loc,base=-1,firstExec=0;
-    char textrec[1000]="",temp[100]; int textlen=0,textStart=0,textInit=0;
+    char textrec[1000]="",temp[1100]; int textlen=0,textStart=0,textInit=0;
+    char trecords[100][100]; int trec_cnt=0, maxAddr=0;
 
     fprintf(list,"Loc    Label     Opcode   Operand   ObjectCode\n");
     fprintf(list,"-----------------------------------------------\n");
 
-    fgets(line,sizeof(line),inter); /* header skip */
+    fgets(line,sizeof(line),inter);
     fgets(line,sizeof(line),inter);
 
-    /* First line START */
     fgets(line,sizeof(line),inter);
     sscanf(line,"%x %s %s %s",&loc,label,opcode,operand);
     strcpy(program_name,label);
@@ -52,13 +52,13 @@ int main(){
     }
     fprintf(list,"%04X   %-8s %-8s %-8s\n",loc,label,opcode,operand);
 
-    /* Now read rest */
     while(fgets(line,sizeof(line),inter)){
         objcode[0]='\0'; label[0]=opcode[0]=operand[0]='\0';
         sscanf(line,"%x %s %s %s",&loc,label,opcode,operand);
+        if(loc>maxAddr) maxAddr=loc;
 
         if(!strcmp(opcode,"END")){
-            progLen=loc-startAddr;
+            progLen=maxAddr-startAddr;
             break;
         }
         else if(!strcmp(opcode,"WORD")){
@@ -74,18 +74,25 @@ int main(){
             }
         }
         else if(!strcmp(opcode,"RESW")||!strcmp(opcode,"RESB")){
-            /* flush current text record */
             if(textlen>0){
-                sprintf(temp,"T^%06X^%02X%s\n",textStart,textlen,textrec);
-                fputs(temp,obj);
+                snprintf(temp,sizeof(temp),"T^%06X^%02X%s\n",textStart,textlen,textrec);
+                strcpy(trecords[trec_cnt++],temp);
                 textrec[0]='\0'; textlen=0; textInit=0;
             }
         }
         else{
-            /* normal instruction */
             char *ophex=find_op(ot,ot_cnt,opcode);
             if(ophex){
-                int addr=find_sym(st,st_cnt,operand);
+                int addr; char opdup[BUF];
+                strcpy(opdup,operand);
+                char *comma = strchr(opdup,',');
+                if(comma!=NULL){
+                    *comma='\0';
+                    addr=find_sym(st,st_cnt,opdup);
+                    if(addr!=-1) addr |= 0x8000;
+                }else{
+                    addr=find_sym(st,st_cnt,operand);
+                }
                 int op; sscanf(ophex,"%X",&op);
                 sprintf(objcode,"%02X%04X",op,addr==-1?0:addr);
             }
@@ -98,22 +105,21 @@ int main(){
             sprintf(temp,"^%s",objcode);
             strcat(textrec,temp);
             textlen+=strlen(objcode)/2;
-            if(textlen>=30){ /* flush */
-                sprintf(temp,"T^%06X^%02X%s\n",textStart,textlen,textrec);
-                fputs(temp,obj);
+            if(textlen>=30){
+                snprintf(temp,sizeof(temp),"T^%06X^%02X%s\n",textStart,textlen,textrec);
+                strcpy(trecords[trec_cnt++],temp);
                 textrec[0]='\0'; textlen=0; textInit=0;
             }
         }
     }
 
-    /* flush last text record */
     if(textlen>0){
-        sprintf(temp,"T^%06X^%02X%s\n",textStart,textlen,textrec);
-        fputs(temp,obj);
+        snprintf(temp,sizeof(temp),"T^%06X^%02X%s\n",textStart,textlen,textrec);
+        strcpy(trecords[trec_cnt++],temp);
     }
 
-    /* header & end */
     fprintf(obj,"H^%-6s^%06X^%06X\n",program_name,startAddr,progLen);
+    for(int i=0;i<trec_cnt;i++) fputs(trecords[i],obj);
     fprintf(obj,"E^%06X\n",firstExec);
 
     fclose(inter);fclose(symtab);fclose(optab);fclose(list);fclose(obj);
