@@ -21,8 +21,9 @@ int main(){
     FILE *inter=fopen("intermediate.txt","r");
     FILE *symtab=fopen("symtab.txt","r");
     FILE *optab=fopen("optab.txt","r");
-    FILE *out=fopen("pass2_output.txt","w");
-    if(!inter||!symtab||!optab||!out){printf("File error\n");return 1;}
+    FILE *list=fopen("pass2_output.txt","w");
+    FILE *obj=fopen("object_program.txt","w");
+    if(!inter||!symtab||!optab||!list||!obj){printf("File error\n");return 1;}
 
     optb ot[MAX_SYM]; int ot_cnt=0;
     while(fscanf(optab,"%s %s",ot[ot_cnt].opnd,ot[ot_cnt].code)==2) ot_cnt++;
@@ -31,22 +32,34 @@ int main(){
     while(fscanf(symtab,"%s %x",st[st_cnt].lab,&st[st_cnt].addr)==2) st_cnt++;
 
     char line[100],label[BUF],opcode[BUF],operand[BUF],objcode[20];
-    int loc,base=-1;
-    fprintf(out,"Loc    Label     Opcode   Operand   ObjectCode\n");
-    fprintf(out,"-----------------------------------------------\n");
+    char program_name[20]=""; int startAddr=0,progLen=0,loc,base=-1,firstExec=0;
+    char textrec[1000]="",temp[100]; int textlen=0,textStart=0,textInit=0;
+
+    fprintf(list,"Loc    Label     Opcode   Operand   ObjectCode\n");
+    fprintf(list,"-----------------------------------------------\n");
 
     fgets(line,sizeof(line),inter); /* header skip */
     fgets(line,sizeof(line),inter);
 
+    /* First line START */
+    fgets(line,sizeof(line),inter);
+    sscanf(line,"%x %s %s %s",&loc,label,opcode,operand);
+    strcpy(program_name,label);
+    if(!strcmp(opcode,"START")){
+        sscanf(operand,"%x",&startAddr);
+        firstExec=startAddr;
+        textStart=startAddr;
+    }
+    fprintf(list,"%04X   %-8s %-8s %-8s\n",loc,label,opcode,operand);
+
+    /* Now read rest */
     while(fgets(line,sizeof(line),inter)){
         objcode[0]='\0'; label[0]=opcode[0]=operand[0]='\0';
         sscanf(line,"%x %s %s %s",&loc,label,opcode,operand);
 
-        if(!strcmp(opcode,"START")||!strcmp(opcode,"END")||
-           !strcmp(opcode,"RESW")||!strcmp(opcode,"RESB")){}
-        else if(!strcmp(opcode,"BASE")){
-            int val=find_sym(st,st_cnt,operand);
-            if(val!=-1) base=val;
+        if(!strcmp(opcode,"END")){
+            progLen=loc-startAddr;
+            break;
         }
         else if(!strcmp(opcode,"WORD")){
             sprintf(objcode,"%06X",atoi(operand));
@@ -60,53 +73,50 @@ int main(){
                 objcode[strlen(operand)-3]='\0';
             }
         }
-        else{
-            int fmt4=0; char op_print[BUF]; strcpy(op_print,opcode);
-            if(opcode[0]=='+'){ fmt4=1; memmove(opcode,opcode+1,strlen(opcode)); }
-
-            char *ophex=find_op(ot,ot_cnt,opcode);
-            if(ophex){
-                int n=1,i=1,x=0,b=0,p=0,e=fmt4,addr=-1,disp=0;
-                char temp[BUF]; strcpy(temp,operand);
-
-                if(temp[0]=='#'){ n=0;i=1; memmove(temp,temp+1,strlen(temp)); }
-                else if(temp[0]=='@'){ n=1;i=0; memmove(temp,temp+1,strlen(temp)); }
-                char *px=strstr(temp,",X"); if(px){*px='\0'; x=1;}
-
-                addr=find_sym(st,st_cnt,temp);
-                if(addr==-1 && n==0 && i==1) disp=atoi(temp); 
-                else if(addr!=-1) disp=addr;
-
-                int op; sscanf(ophex,"%X",&op);
-                op&=0xFC; op|=(n<<1)|i;
-
-                if(!fmt4){
-                    int next=loc+3;
-                    if(addr==-1 && n==0 && i==1){ b=0;p=0; }
-                    else{
-                        int d=addr-next;
-                        if(d>=-2048&&d<=2047){ p=1; disp=d&0xFFF; }
-                        else if(base!=-1){ int db=addr-base;
-                            if(db>=0&&db<=4095){ b=1; disp=db; }
-                            else { fmt4=1; e=1; }
-                        }else { fmt4=1; e=1; }
-                    }
-                }
-                if(!fmt4){
-                    int xbpe=(x<<3)|(b<<2)|(p<<1)|e;
-                    int obj=(op<<16)|(xbpe<<12)|(disp&0xFFF);
-                    sprintf(objcode,"%06X",obj);
-                }else{
-                    int xbpe=(x<<3)|(0<<2)|(0<<1)|1;
-                    int obj=(op<<24)|(xbpe<<20)|(disp&0xFFFFF);
-                    sprintf(objcode,"%08X",obj);
-                }
-                strcpy(opcode,op_print);
+        else if(!strcmp(opcode,"RESW")||!strcmp(opcode,"RESB")){
+            /* flush current text record */
+            if(textlen>0){
+                sprintf(temp,"T^%06X^%02X%s\n",textStart,textlen,textrec);
+                fputs(temp,obj);
+                textrec[0]='\0'; textlen=0; textInit=0;
             }
         }
-        fprintf(out,"%04X   %-8s %-8s %-8s %-s\n",loc,label,opcode,operand,objcode);
+        else{
+            /* normal instruction */
+            char *ophex=find_op(ot,ot_cnt,opcode);
+            if(ophex){
+                int addr=find_sym(st,st_cnt,operand);
+                int op; sscanf(ophex,"%X",&op);
+                sprintf(objcode,"%02X%04X",op,addr==-1?0:addr);
+            }
+        }
+
+        fprintf(list,"%04X   %-8s %-8s %-8s %-s\n",loc,label,opcode,operand,objcode);
+
+        if(strlen(objcode)>0){
+            if(!textInit){ textStart=loc; textInit=1; }
+            sprintf(temp,"^%s",objcode);
+            strcat(textrec,temp);
+            textlen+=strlen(objcode)/2;
+            if(textlen>=30){ /* flush */
+                sprintf(temp,"T^%06X^%02X%s\n",textStart,textlen,textrec);
+                fputs(temp,obj);
+                textrec[0]='\0'; textlen=0; textInit=0;
+            }
+        }
     }
-    fclose(inter);fclose(symtab);fclose(optab);fclose(out);
-    printf("Pass 2 complete.\n");
+
+    /* flush last text record */
+    if(textlen>0){
+        sprintf(temp,"T^%06X^%02X%s\n",textStart,textlen,textrec);
+        fputs(temp,obj);
+    }
+
+    /* header & end */
+    fprintf(obj,"H^%-6s^%06X^%06X\n",program_name,startAddr,progLen);
+    fprintf(obj,"E^%06X\n",firstExec);
+
+    fclose(inter);fclose(symtab);fclose(optab);fclose(list);fclose(obj);
+    printf("Pass 2 complete with object program.\n");
     return 0;
 }
